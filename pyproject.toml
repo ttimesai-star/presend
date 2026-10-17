@@ -12,8 +12,8 @@ requires-python = ">=3.10"
 dependencies = ["requests>=2.31"]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.10"]
-test = ["pytest>=8", "mcp>=1.10"]
+mcp = ["mcp>=1.10,<2"]
+test = ["pytest>=8", "mcp>=1.10,<2"]
 
 [project.scripts]
 presend = "presend.cli:main"

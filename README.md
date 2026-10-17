@@ -10,6 +10,8 @@ live Blockscout data; no external users yet. Not financial or security advice.
 
 ![PreSend replays 3 May 2024, one block before the theft](docs/img/01_replay_fake_stop.png)
 
+Demo video (93 s, synthetic voice): [docs/demo/presend_demo.mp4](docs/demo/presend_demo.mp4)
+
 ## The problem, on a real case
 
 On 3 May 2024 a wallet sent **1,155 WBTC** (about 68 million USD at the time) to

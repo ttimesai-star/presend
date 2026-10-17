@@ -82,7 +82,8 @@ def test_interactions_signed_and_as_of():
     tok_signed = [h for h in hist if h.kind == "token" and h.tx_hash == "0xa"][0]
     assert tok_signed.signed_by_wallet is True               # its tx hash is one of ours
     spoof = [h for h in hist if h.tx_hash == "0xd"][0]
-    assert spoof.signed_by_wallet is None and is_junk(spoof, 1)
+    # block 150 is inside the range our own tx list covers (from block 50), and 0xd is not ours
+    assert spoof.signed_by_wallet is False and is_junk(spoof, 1)
     assert not is_real_payment(spoof, 1)
 
 

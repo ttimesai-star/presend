@@ -56,3 +56,10 @@ def test_api_rejects_bad_input(base):
     code, _ = get(f"{base}/api/check?sender={VICTIM}&recipient=<script>")
     assert code == 400
     assert get(base + "/nope")[0] == 404
+
+
+def test_api_rejects_bad_token_and_drops_non_https_links(base):
+    code, body = get(f"{base}/api/check?sender={VICTIM}&recipient={FAKE}&token=../../stats")
+    assert code == 400 and "token" in json.loads(body)["error"]
+    _, page = get(base + "/")
+    assert "/^https:\/\//.test(u)" in page

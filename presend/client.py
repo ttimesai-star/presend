@@ -73,7 +73,7 @@ class BlockscoutClient:
                 r = self.session.get(url, params=params, timeout=self.timeout)
             except requests.RequestException as e:
                 if attempt == self.max_retries:
-                    raise BlockscoutError(f"network error on {path}: {e}") from e
+                    raise BlockscoutError(f"network error on {path}: {self._redact(e)}") from None
                 time.sleep(1.5 * (attempt + 1))
                 continue
             self.usage.calls += 1
@@ -85,17 +85,24 @@ class BlockscoutClient:
             if r.status_code == 429 or r.status_code >= 500:
                 if attempt == self.max_retries:
                     raise BlockscoutError(f"HTTP {r.status_code} on {path}")
-                time.sleep(1.0 * (attempt + 1))
+                retry_after = str(r.headers.get("Retry-After") or "")
+                delay = float(retry_after) if retry_after.isdigit() else 0.5 * 2 ** attempt
+                time.sleep(min(delay, 30.0))
                 continue
             if r.status_code == 404:
                 return {}
             if r.status_code != 200:
-                raise BlockscoutError(f"HTTP {r.status_code} on {path}: {r.text[:200]}")
+                raise BlockscoutError(f"HTTP {r.status_code} on {path}: {self._redact(r.text[:200])}")
             try:
                 return r.json()
             except ValueError as e:
                 raise BlockscoutError(f"non-JSON answer on {path}") from e
         raise BlockscoutError(f"gave up on {path}")
+
+    def _redact(self, text) -> str:
+        """Never let the API key reach an exception message or a log."""
+        t = str(text)
+        return t.replace(self.api_key, "***") if self.api_key else t
 
     def pages(self, path: str, max_pages: int = 10, as_of_block: int | None = None,
               hard_cap: int = 60, **params: Any) -> Iterator[dict]:
@@ -107,7 +114,7 @@ class BlockscoutClient:
         next_params: dict | None = {}
         counted = fetched = 0
         while counted < max_pages and fetched < hard_cap:
-            data = self.get(path, **params, **(next_params or {}))
+            data = self.get(path, **{**params, **(next_params or {})})
             fetched += 1
             items = data.get("items") or []
             newer_only = as_of_block is not None and items and all(

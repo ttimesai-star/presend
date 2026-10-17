@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 NATIVE_SYMBOL = {1: "ETH", 10: "ETH", 42161: "ETH", 8453: "ETH", 59144: "ETH", 534352: "ETH",
                  11155111: "ETH", 100: "XDAI", 137: "POL", 56: "BNB"}
+TESTNETS = {11155111, 17000, 560048, 84532, 421614, 11155420, 80002, 59141, 534351, 10200, 97}
 MAJOR_SYMBOLS = {"USDT", "USDC", "DAI", "WETH", "WBTC", "ETH", "USDE", "PYUSD", "EURC", "LINK"}
 
 # Latin look-alikes used in fake token symbols (Cyrillic and Greek capitals and lower case).
@@ -22,9 +23,14 @@ def norm(addr: str | None) -> str:
     return (addr or "").lower()
 
 
+def _hex(addr: str | None) -> str:
+    a = norm(addr)
+    return a[2:] if a.startswith("0x") else a
+
+
 def lookalike_score(a: str, b: str) -> tuple[int, int]:
     """Common prefix and suffix length of two addresses (hex part, case-insensitive)."""
-    x, y = norm(a)[2:], norm(b)[2:]
+    x, y = _hex(a), _hex(b)
     if not x or not y or x == y:
         return (0, 0)
     p = 0
@@ -70,7 +76,12 @@ def token_red_flags(token: dict | None, chain_id: int, ignore_labels: bool = Fal
     if native and sym.upper() == native and (token.get("type") or "").startswith("ERC"):
         flags.append(f"ERC-20 token named like the native coin {native}")
     holders = _int(token.get("holders_count"))
-    if symbol_skeleton(sym) in MAJOR_SYMBOLS and token.get("exchange_rate") in (None, "") \
+    rate = token.get("exchange_rate")
+    try:
+        no_price = rate in (None, "") or float(rate) <= 0
+    except (TypeError, ValueError):
+        no_price = True
+    if chain_id not in TESTNETS and symbol_skeleton(sym) in MAJOR_SYMBOLS and no_price \
             and holders is not None and holders < 1000:
         flags.append(f"uses the symbol of a major asset but has {holders} holders and no market price")
     return flags
@@ -102,11 +113,26 @@ def _int(v) -> int | None:
 
 
 def interactions(wallet: str, txs: list[dict], transfers: list[dict],
-                 as_of_block: int | None = None) -> list[Interaction]:
-    """Turn transactions + token transfers into one list, as seen at `as_of_block`."""
+                 as_of_block: int | None = None, wallet_is_contract: bool = False) -> list[Interaction]:
+    """Turn transactions + token transfers into one list, as seen at `as_of_block`.
+
+    Who signed an outgoing token transfer: for an EOA wallet, every transaction it sent is in its
+    own transaction list. So a transfer "from the wallet" whose transaction hash is missing from
+    that list, inside the block range the list covers, was sent by someone else (spoofed). For a
+    contract wallet (Safe, ERC-4337, EIP-7702) the transaction sender is a relayer or owner, so the
+    signer stays unknown (None) and no spoofing claim is made from it.
+    """
     w = norm(wallet)
     out: list[Interaction] = []
     signed = set()
+    blocks = []
+    for t in txs:
+        blk = _int(t.get("block_number", t.get("block")))
+        if blk is not None:
+            blocks.append(blk)
+        if norm((t.get("from") or {}).get("hash")) == w:
+            signed.add(norm(t.get("hash")))
+    floor = min(blocks) if blocks else None
     for t in txs:
         blk = _int(t.get("block_number", t.get("block")))
         if as_of_block is not None and (blk is None or blk > as_of_block):
@@ -114,8 +140,6 @@ def interactions(wallet: str, txs: list[dict], transfers: list[dict],
         if t.get("status") not in (None, "ok"):
             continue
         frm, to = norm((t.get("from") or {}).get("hash")), norm((t.get("to") or {}).get("hash"))
-        if frm == w:
-            signed.add(norm(t.get("hash")))
         value = _int(t.get("value")) or 0
         if not to:
             continue
@@ -133,9 +157,14 @@ def interactions(wallet: str, txs: list[dict], transfers: list[dict],
         value = _int((t.get("total") or {}).get("value")) or 0
         h = norm(t.get("transaction_hash"))
         if frm == w and to != w:
+            if h in signed:
+                who = True
+            elif not wallet_is_contract and floor is not None and blk is not None and blk > floor:
+                who = False
+            else:
+                who = None
             out.append(Interaction(to, "out", "token", value, h, blk or 0, t.get("timestamp") or "",
-                                   t.get("token") or {}, True if h in signed else None,
-                                   t.get("to") or {}))
+                                   t.get("token") or {}, who, t.get("to") or {}))
         elif to == w and frm != w:
             out.append(Interaction(frm, "in", "token", value, h, blk or 0, t.get("timestamp") or "",
                                    t.get("token") or {}, False, t.get("from") or {}))
@@ -149,9 +178,11 @@ def is_junk(it: Interaction, chain_id: int) -> bool:
     return it.is_zero
 
 
-def is_real_payment(it: Interaction, chain_id: int) -> bool:
-    """Wallet sent something of value and signed it itself."""
-    return (it.direction == "out" and it.signed_by_wallet is True and not it.is_zero
+def is_real_payment(it: Interaction, chain_id: int, wallet_is_contract: bool = False) -> bool:
+    """Wallet sent something of value and authorised it (signed it, or, for a contract wallet,
+    the signer cannot be told from the transaction and the token is not junk)."""
+    authorised = it.signed_by_wallet is True or (wallet_is_contract and it.signed_by_wallet is None)
+    return (it.direction == "out" and authorised and not it.is_zero
             and not (it.kind == "token" and token_red_flags(it.token, chain_id, ignore_labels=True)))
 
 

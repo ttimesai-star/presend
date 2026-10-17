@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         res = scan_wallet(client, a.wallet, max_pages=a.pages, as_of_block=a.as_of_block)
         print(json.dumps(res, indent=2) if a.json else render_scan(res))
         return 0
-    except BlockscoutError as e:
+    except (BlockscoutError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 3
 

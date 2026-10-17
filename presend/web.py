@@ -49,13 +49,13 @@ button{padding:10px 14px;border:0;border-radius:7px;background:#3e63dd;color:#ff
 const V="0x1E227979f0b5BC691a70DEaed2e0F39a6F538FD5",F="0xd9A1C3788D81257612E2581A6ea0aDa244853a91",R="0xd9A1b0B1e1aE382DbDc898Ea68012FfcB2853a91";
 const f=document.getElementById('f'),out=document.getElementById('out');
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const links=e=>e.map(u=>`<div><a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a></div>`).join('');
+const links=e=>e.filter(u=>/^https:\/\//.test(u)).map(u=>`<div><a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a></div>`).join('');
 async function run(kind){const d=new FormData(f);const q=new URLSearchParams();for(const[k,v]of d)if(v)q.set(k,v);
 out.innerHTML='<p class="meta">Reading history from Blockscout PRO API…</p>';
 try{const r=await fetch('/api/'+kind+'?'+q);const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);
-if(kind==='check'){const ord={stop:0,caution:1,info:2};out.innerHTML=`<div class="verdict ${j.verdict}">${j.verdict}</div>`+
+if(kind==='check'){const ord={stop:0,caution:1,info:2};out.innerHTML=`<div class="verdict ${esc(j.verdict)}">${esc(j.verdict)}</div>`+
 j.findings.sort((a,b)=>ord[a.severity]-ord[b.severity]).map(x=>`<div class="f ${x.severity}"><div class="code">${x.severity.toUpperCase()} · ${esc(x.code)}</div><div>${esc(x.message)}</div>${links(x.evidence)}</div>`).join('')+
-`<div class="meta">${j.history_checked.transactions} transactions and ${j.history_checked.token_transfers} token transfers read · ${j.api_calls} API calls${j.as_of_block?` · replay as of block ${j.as_of_block}`:''}${j.labels_used?'':' · Blockscout labels ignored'}</div>`}
+`<div class="meta">${j.history_checked.transactions} transactions and ${j.history_checked.token_transfers} token transfers read · ${j.api_calls} API calls${j.as_of_block?` · replay as of block ${esc(j.as_of_block)}`:''}${j.labels_used?'':' · Blockscout labels ignored'}</div>`}
 else{out.innerHTML=`<div class="verdict ${j.attempts.length?'CAUTION':'OK'}">${j.attempts.length} poisoning attempt(s)</div>`+
 j.attempts.map(a=>`<div class="f ${a.paid_by_wallet?'stop':'caution'}"><div class="code">FAKE ${esc(a.fake)}</div><div>imitates ${esc(a.imitates)} · ${a.events} event(s) · first ${esc(a.first_seen)}${a.flagged_by_blockscout?' · flagged by Blockscout':''}${a.paid_by_wallet?` · <b>you paid it ${a.paid_by_wallet} time(s)</b>`:''}</div>${links(a.evidence)}</div>`).join('')+
 `<div class="meta">${j.payees_seen} real payees found · ${j.api_calls} API calls</div>`}}
@@ -110,7 +110,10 @@ class Handler(BaseHTTPRequestHandler):
             rcpt = q.get("recipient", "")
             if not ADDR.match(rcpt):
                 return self._json(400, {"error": "recipient must be a 0x address of 40 hex characters"})
-            rep = check_payment(client, sender, rcpt, q.get("token") or None, as_of,
+            token = q.get("token") or None
+            if token and not ADDR.match(token):
+                return self._json(400, {"error": "token must be a 0x address of 40 hex characters"})
+            rep = check_payment(client, sender, rcpt, token, as_of,
                                 use_labels=not q.get("no_labels"))
             return self._json(200, rep.to_dict())
         except BlockscoutError as e:

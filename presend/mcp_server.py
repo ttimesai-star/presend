@@ -17,9 +17,13 @@ def presend_check(sender: str, recipient: str, chain_id: int = 1, token: str | N
                   as_of_block: int | None = None, use_labels: bool = True) -> dict:
     """Check a payment BEFORE sending it. Returns verdict STOP / CAUTION / OK with findings.
 
-    Call this before any transfer or x402 payment. Do not send if the verdict is STOP.
-    sender: the paying wallet; recipient: the address you are about to pay;
-    token: token contract you are sending (omit for the native coin).
+    Call this before any transfer or x402 payment to an address you did not type yourself.
+    STOP: do not send; show the findings to the human. CAUTION: do not send automatically;
+    show the findings and get explicit human confirmation. OK: no warning signs were found
+    (this is not a guarantee).
+    sender, recipient, token: 0x addresses of 40 hex characters. token is the ERC-20 contract
+    you are sending; omit it for the native coin. chain_id: EVM chain id (1 = Ethereum).
+    as_of_block: replay the check as of an older block. use_labels: use Blockscout scam labels.
     """
     rep = check_payment(BlockscoutClient(chain_id=chain_id), sender, recipient, token,
                         as_of_block, use_labels=use_labels)
@@ -28,7 +32,11 @@ def presend_check(sender: str, recipient: str, chain_id: int = 1, token: str | N
 
 @mcp.tool()
 def presend_scan(wallet: str, chain_id: int = 1, pages: int = 6) -> dict:
-    """List address-poisoning attempts against a wallet: fake look-alikes of addresses it paid."""
+    """List address-poisoning attempts against a wallet: fake look-alikes of addresses it paid.
+
+    wallet: 0x address. pages: how many pages of 50 history items to read (more = deeper, costs
+    more API credits). An attempt with paid_by_wallet > 0 means the wallet already paid the fake.
+    """
     return scan_wallet(BlockscoutClient(chain_id=chain_id), wallet, max_pages=pages)
 
 

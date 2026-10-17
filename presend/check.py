@@ -1,6 +1,7 @@
 """PreSend: decide whether a payment from `sender` to `recipient` is safe, using Blockscout data."""
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 
 from .analysis import (Interaction, address_flagged, interactions, is_junk, is_lookalike,
@@ -9,6 +10,12 @@ from .client import BlockscoutClient, explorer_url
 
 STOP, CAUTION, INFO = "stop", "caution", "info"
 MAX_TX_LOOKUPS = 8
+ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+
+def _require_address(value: str | None, name: str) -> None:
+    if not value or not ADDRESS.match(value):
+        raise ValueError(f"{name} must be a 0x address of 40 hex characters")
 
 
 @dataclass
@@ -65,6 +72,10 @@ def _fmt_amount(it: Interaction) -> str:
 def check_payment(client: BlockscoutClient, sender: str, recipient: str,
                   token: str | None = None, as_of_block: int | None = None,
                   use_labels: bool = True, max_pages: int = 6) -> Report:
+    _require_address(sender, "sender")
+    _require_address(recipient, "recipient")
+    if token:
+        _require_address(token, "token")
     chain = client.chain_id
     s, r = norm(sender), norm(recipient)
     findings: list[Finding] = []
@@ -88,9 +99,11 @@ def check_payment(client: BlockscoutClient, sender: str, recipient: str,
                                 [link("address", recipient)]))
 
     # 2. The sender's own history, as of the given block.
+    smeta = client.address(sender) or {}
+    contract_wallet = bool(smeta.get("is_contract"))
     txs = client.transactions(sender, max_pages, as_of_block)
     transfers = client.token_transfers(sender, max_pages, as_of_block)
-    hist = interactions(sender, txs, transfers, as_of_block)
+    hist = interactions(sender, txs, transfers, as_of_block, wallet_is_contract=contract_wallet)
 
     with_r = [it for it in hist if it.counterparty == r]
     look = {}
@@ -98,12 +111,16 @@ def check_payment(client: BlockscoutClient, sender: str, recipient: str,
         if it.counterparty != r and is_lookalike(it.counterparty, r):
             look.setdefault(it.counterparty, []).append(it)
 
-    budget = [MAX_TX_LOOKUPS]
-    _confirm_signers(client, sender, with_r, budget)
-    for items in look.values():
-        _confirm_signers(client, sender, items, budget)
+    if not contract_wallet:
+        budget = [MAX_TX_LOOKUPS]
+        _confirm_signers(client, sender, with_r, budget)
+        for items in look.values():
+            _confirm_signers(client, sender, items, budget)
 
-    paid_r = [it for it in with_r if is_real_payment(it, chain)]
+    def paying(it: Interaction) -> bool:
+        return is_real_payment(it, chain, contract_wallet)
+
+    paid_r = [it for it in with_r if paying(it)]
     spoofed = [it for it in with_r if it.direction == "out" and it.signed_by_wallet is False]
     junk_r = [it for it in with_r if is_junk(it, chain)]
 
@@ -130,12 +147,14 @@ def check_payment(client: BlockscoutClient, sender: str, recipient: str,
                                 "transfers.", ev))
 
     for addr, items in sorted(look.items(), key=lambda kv: -sum(lookalike_score(kv[0], r))):
-        paid = [it for it in items if is_real_payment(it, chain)]
+        paid = [it for it in items if paying(it)]
         if not paid:
             continue
         p, sfx = lookalike_score(addr, r)
         last = max(paid, key=lambda i: i.block)
-        sev = STOP if not paid_r else CAUTION
+        # Having paid the recipient before does not clear it when it also planted junk or spoofed
+        # entries: that wallet was already poisoned once.
+        sev = STOP if (not paid_r or spoofed or junk_r) else CAUTION
         findings.append(Finding(
             "LOOKALIKE_OF_PAID", sev,
             f"Recipient imitates {addr} (same first {p} and last {sfx} hex characters). You paid "
@@ -186,19 +205,24 @@ def scan_wallet(client: BlockscoutClient, wallet: str, max_pages: int = 6,
     looks like an address the wallet really paid. `paid_by_wallet` > 0 means the wallet later
     sent real value to the fake address: the poisoning worked.
     """
+    _require_address(wallet, "wallet")
     chain = client.chain_id
+    contract_wallet = bool((client.address(wallet) or {}).get("is_contract"))
     txs = client.transactions(wallet, max_pages, as_of_block)
     transfers = client.token_transfers(wallet, max_pages, as_of_block)
-    hist = interactions(wallet, txs, transfers, as_of_block)
+    hist = interactions(wallet, txs, transfers, as_of_block, wallet_is_contract=contract_wallet)
     by_cp: dict[str, list[Interaction]] = {}
     for it in hist:
         by_cp.setdefault(it.counterparty, []).append(it)
-    payees = {cp: [i for i in items if is_real_payment(i, chain)] for cp, items in by_cp.items()}
+    payees = {cp: [i for i in items if is_real_payment(i, chain, contract_wallet)]
+              for cp, items in by_cp.items()}
     payees = {cp: v for cp, v in payees.items() if v}
     attempts = []
     for cp, items in by_cp.items():
         suspicious = [i for i in items if is_junk(i, chain)
-                      or (i.direction == "out" and i.kind == "token" and i.signed_by_wallet is None)]
+                      or (i.direction == "out" and i.signed_by_wallet is False)
+                      or (not contract_wallet and i.direction == "out" and i.kind == "token"
+                          and i.signed_by_wallet is None)]
         if not suspicious:
             continue
         target = next((p for p in payees if p != cp and is_lookalike(cp, p)), None)

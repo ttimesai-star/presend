@@ -10,7 +10,7 @@ live Blockscout data; no external users yet. Not financial or security advice.
 
 ![PreSend replays 3 May 2024, one block before the theft](docs/img/01_replay_fake_stop.png)
 
-Demo video (93 s, synthetic voice): [docs/demo/presend_demo.mp4](docs/demo/presend_demo.mp4)
+Demo video (3 min 27 s, synthetic voice): [docs/demo/presend_demo.mp4](docs/demo/presend_demo.mp4)
 
 ## The problem, on a real case
 
@@ -48,7 +48,7 @@ Today, with labels on, Blockscout's own scam flag on the fake address is shown t
 | Code | Severity | Built from (Blockscout PRO API) |
 |---|---|---|
 | `RECIPIENT_FLAGGED` | stop | `GET /addresses/{addr}`: `is_scam`, `reputation`, phishing tags and notes |
-| `SPOOFED_TRANSFER` | stop | `/addresses/{wallet}/token-transfers` + `/transactions/{hash}`: a transfer "from you" whose transaction was sent by someone else |
+| `SPOOFED_TRANSFER` | stop | `/addresses/{wallet}/transactions` + `/token-transfers` (+ `/transactions/{hash}` for older items): a transfer "from you" whose transaction you did not send. EOA wallets only; for contract wallets (Safe, ERC-4337) no such claim is made |
 | `LOOKALIKE_OF_PAID` | stop (caution if you also paid the recipient) | your `/transactions` and `/token-transfers`: the recipient shares 7+ hex characters at both ends with an address you really paid |
 | `ONLY_JUNK_HISTORY` | caution | zero-value transfers or fake tokens (look-alike symbols such as Cyrillic "WВТC", ERC-20 named like the native coin, major symbol with no price and few holders) |
 | `NEW_RECIPIENT` / `KNOWN_RECIPIENT` | caution / info | your signed outgoing payments |
@@ -120,7 +120,7 @@ when the verdict is STOP. An agent that pays by x402 or a plain transfer can cal
 
 ```bash
 pip install -e ".[test]"
-pytest -q          # 25 tests, offline
+pytest -q          # 39 tests, offline
 ```
 
 Integration tests replay recorded Blockscout answers for the May 2024 case
@@ -135,7 +135,11 @@ Integration tests replay recorded Blockscout answers for the May 2024 case
 - Replay mode uses current Blockscout labels and counters unless `--no-labels`; counters are
   skipped in replay.
 - Base, Polygon and zkSync are not on the free PRO API tier (Blockscout notice, October 2026).
+- Contract wallets: the spoofed-transfer test is off (their transactions are sent by owners or bundlers).
+- The local web server has no auth: keep it on 127.0.0.1, or anyone who reaches it spends your API credits.
 - Prototype: no external users yet. It warns; it does not block a wallet.
+
+External code review (Google Jules) and what was fixed: [REVIEW.md](REVIEW.md).
 
 ## License
 

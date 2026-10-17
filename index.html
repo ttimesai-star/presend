@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PreSend - check a payee before you pay</title>
+<style>body{margin:0;background:#0f1720;color:#e6edf3;font:16px/1.6 system-ui,Segoe UI,Roboto,sans-serif}main{max-width:900px;margin:0 auto;padding:28px 16px}a{color:#7cb4ff}video,img{width:100%;border-radius:10px;border:1px solid #24313f;margin:10px 0}p.m{color:#8b9bab}</style></head>
+<body><main><h1>PreSend</h1>
+<p>Check a recipient against your own on-chain history before you pay. Stops address-poisoning look-alikes, spoofed "from you" transfers and fake tokens. Data: Blockscout PRO API. CLI, local web page and MCP tool for AI agents.</p>
+<p class="m">Prototype for the Blockscout PRO API Buildathon. Source and setup: <a href="https://github.com/ttimesai-star/presend">github.com/ttimesai-star/presend</a></p>
+<h2>Demo (3 min 27 s, synthetic voice)</h2>
+<video controls preload="metadata" src="docs/demo/presend_demo.mp4"></video>
+<h2>Screens</h2>
+<img src="docs/img/01_replay_fake_stop.png" alt="Replay of 3 May 2024 one block before the theft: STOP">
+<img src="docs/img/02_replay_real_ok.png" alt="Same moment, real address: OK">
+<img src="docs/img/03_scan.png" alt="Scan: four poisoning attempts, one paid">
+<img src="docs/img/04_blockscout_spoof_tx.png" alt="Blockscout Explorer: spoofed transfer sent by a third party">
+<img src="docs/img/05_blockscout_fake_address.png" alt="Blockscout Explorer: fake address now labelled Phish / Hack">
+</main></body></html>
